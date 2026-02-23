@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+    
+    parameters {
+        string(name: 'NAMESPACE', defaultValue: 'default', description: 'K8s Namespace')
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag to deploy')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'qa', 'prod'], description: 'Target Cluster')
+    }
+
+    environment {
+        // AWS EKS Cluster Name
+        CLUSTER_NAME = "my-eks-cluster-${params.ENVIRONMENT}"
+        REGION = "us-east-1"
+    }
+
+    stages {
+        stage('AWS Authentication') {
+            steps {
+                script {
+                    // Update kubeconfig for EKS
+                    sh "aws eks update-kubeconfig --region ${env.REGION} --name ${env.CLUSTER_NAME}"
+                }
+            }
+        }
+
+        stage('Deploy to K8s') {
+            steps {
+                script {
+                    // Using envsubst to swap variables in your YAML file
+                    sh """
+                        envsubst < k8s/deployment.yaml | kubectl apply -f - --namespace=${params.NAMESPACE}
+                    """
+                }
+            }
+        }
+
+        stage('Verify Rollout') {
+            steps {
+                script {
+                    // This is the "Senior" way to do it - don't just apply, verify!
+                    def status = sh(script: "kubectl rollout status deployment/my-app --namespace=${params.NAMESPACE} --timeout=90s", returnStatus: true)
+                    
+                    if (status != 0) {
+                        echo "Deployment failed! Rolling back..."
+                        sh "kubectl rollout undo deployment/my-app --namespace=${params.NAMESPACE}"
+                        error "Pipeline failed due to deployment timeout."
+                    }
+                }
+            }
+        }
+    }
+}

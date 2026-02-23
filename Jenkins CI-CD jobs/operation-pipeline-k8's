@@ -1,0 +1,28 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'DEPLOYMENT_NAME', defaultValue: '', description: 'Name of the deployment to restart')
+        string(name: 'NAMESPACE', defaultValue: 'default', description: 'Namespace')
+    }
+
+    stages {
+        stage('Rolling Restart') {
+            steps {
+                script {
+                    if (params.DEPLOYMENT_NAME == "") {
+                        error "DEPLOYMENT_NAME is required!"
+                    }
+
+                    echo "Initiating rolling restart for ${params.DEPLOYMENT_NAME}..."
+                    
+                    // This command triggers a new rollout by updating the deployment's annotation
+                    sh "kubectl rollout restart deployment/${params.DEPLOYMENT_NAME} -n ${params.NAMESPACE}"
+                    
+                    // Monitor the restart
+                    sh "kubectl rollout status deployment/${params.DEPLOYMENT_NAME} -n ${params.NAMESPACE}"
+                }
+            }
+        }
+    }
+}
