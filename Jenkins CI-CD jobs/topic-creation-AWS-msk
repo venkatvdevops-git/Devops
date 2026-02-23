@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'TOPIC_NAME', defaultValue: '', description: 'The name of the Kafka topic to create')
+        choice(name: 'PARTITIONS', choices: ['3', '6', '12'], description: 'Number of partitions')
+        choice(name: 'REPLICATION_FACTOR', choices: ['3', '2'], description: 'Replication factor (MSK default is usually 3)')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target MSK Cluster')
+        booleanParam(name: 'DRY_RUN', defaultValue: true, description: 'If checked, it will only list topics and not create anything')
+    }
+
+    environment {
+        // Map your environments to your MSK Bootstrap strings
+        BOOTSTRAP_DEV = "b-1.dev-msk.abc.c2.kafka.us-east-1.amazonaws.com:9092"
+        BOOTSTRAP_PROD = "b-1.prod-msk.xyz.c2.kafka.us-east-1.amazonaws.com:9092"
+        KAFKA_VERSION = "3.5.1"
+    }
+
+    stages {
+        stage('Validation') {
+            steps {
+                script {
+                    if (params.TOPIC_NAME == '') {
+                        error "TOPIC_NAME parameter is required!"
+                    }
+                }
+            }
+        }
+
+        stage('Setup Kafka Tools') {
+            steps {
+                sh """
+                    if [ ! -d "kafka_2.13-${KAFKA_VERSION}" ]; then
+                        wget https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz
+                        tar -xzf kafka_2.13-${KAFKA_VERSION}.tgz
+                    fi
+                """
+            }
+        }
+
+        stage('Manage Topic') {
+            steps {
+                script {
+                    // Select the correct bootstrap server based on environment parameter
+                    def bootstrap = (params.ENVIRONMENT == 'prod') ? env.BOOTSTRAP_PROD : env.BOOTSTRAP_DEV
+                    
+                    sh """
+                        cd kafka_2.13-${KAFKA_VERSION}/bin/
+                        
+                        echo "Checking if topic ${params.TOPIC_NAME} exists on ${params.ENVIRONMENT}..."
+                        
+                        EXISTS=\$(./kafka-topics.sh --bootstrap-server ${bootstrap} --list | grep -w "${params.TOPIC_NAME}" || true)
