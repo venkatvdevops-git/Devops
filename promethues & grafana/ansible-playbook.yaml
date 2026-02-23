@@ -1,0 +1,78 @@
+---
+- name: Deploy Full Monitoring Stack
+  hosts: monitoring_servers
+  become: yes
+  vars:
+    prometheus_version: "2.45.0"
+    node_exporter_version: "1.6.1"
+    grafana_package: "grafana-enterprise"
+
+  tasks:
+    # --- SECTION 1: PROMETHEUS ---
+    - name: Create Prometheus System User
+      user:
+        name: prometheus
+        shell: /sbin/nologin
+        system: yes
+
+    - name: Install Prometheus Binary
+      unarchive:
+        src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: /tmp
+        remote_src: yes
+
+    - name: Copy Prometheus Binaries to /usr/local/bin
+      copy:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+        owner: prometheus
+        group: prometheus
+        remote_src: yes
+      loop: [ 'prometheus', 'promtool' ]
+
+    # --- SECTION 2: NODE EXPORTER ---
+    - name: Create Node Exporter User
+      user:
+        name: node_exporter
+        shell: /sbin/nologin
+        system: yes
+
+    - name: Install Node Exporter
+      unarchive:
+        src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp
+        remote_src: yes
+
+    - name: Copy Node Exporter Binary
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: "/usr/local/bin/node_exporter"
+        mode: '0755'
+        owner: node_exporter
+        remote_src: yes
+
+    # --- SECTION 3: GRAFANA ---
+    - name: Add Grafana Repository
+      yum_repository:
+        name: grafana
+        description: Grafana Repository
+        baseurl: https://rpm.grafana.com
+        gpgcheck: yes
+        gpgkey: https://rpm.grafana.com/gpg.key
+
+    - name: Install Grafana Enterprise
+      yum:
+        name: "{{ grafana_package }}"
+        state: present
+
+    # --- SECTION 4: SERVICE MANAGEMENT ---
+    - name: Ensure Services are Started and Enabled
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - grafana-server
+        - prometheus # Assuming you've dropped the systemd unit file via a template task
+        - node_exporter
